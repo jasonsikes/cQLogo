@@ -1,0 +1,60 @@
+# Prerequisites
+*.d
+/build*
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Emacs temp files
+*~
+
+Qt user files
+*.pro.user*
+CMakeLists.txt.user*
+
+# doxygen output
+html
+
+# Added by file manager GUIs
+.DS_Store
+.directory
+
+# Added by VS Code
+.vscode/
+
+# CMake-generated files
+CMakeFiles
+CMakeLists.txt.user
+Makefile
+logo_autogen
+CMakeCache.txt
+QLogo_autogen
+cmake_install.cmake
+.cache/

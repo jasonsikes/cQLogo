@@ -1,0 +1,7 @@
+make "foo 20
+to proc
+setfoo 1
+show :foo
+end
+proc
+show :foo
