@@ -50,6 +50,12 @@ Datum::Datum() : retainCount(0)
         qDebug() <<this << " con++: " << countOfNodes;
 }
 
+Datum *Datum::getInstance()
+{
+    static Datum singleton;
+    return &singleton;
+}
+
 Datum::~Datum()
 {
     --countOfNodes;
@@ -67,8 +73,5 @@ QString Datum::showValue(bool, int, int)
     return printValue();
 }
 
-// Values to represent no data (nullptr)
-// notADatum must be initialized before nothing (order is guaranteed within same translation unit)
-Datum notADatum;
-DatumPtr nothing(&notADatum);
-DatumPtr emptyList(EmptyList::instance());
+// Value to represent nothing (similar to nullptr)
+DatumPtr nothing(Datum::getInstance());
