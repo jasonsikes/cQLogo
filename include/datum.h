@@ -146,7 +146,6 @@ class Datum
         typeGoto            = 0x00000020,
         typeContinuation    = 0x00000040,
         typeReturn          = 0x00000080,
-
         typeFlowControlMask = 0x000000F0,
 
         // These are the types that are used internally by QLogo.
@@ -154,13 +153,12 @@ class Datum
         typeASTNode         = 0x00000200,
         typeProcedure       = 0x00000400,
 
-        // "Unbound" can have two forms:
-        // 1. "nothing" (typeNothing) - nothing, and no ASTNode blame info
-        // 2. "ASTNode" (typeASTNode) - ASTNode, which can be interpreted as "nothing" with blame info
-        typeUnboundMask     = 0x00000300, // typeASTNode + typeProcedure
+        typeUnboundMask     = 0x00000300, // typeASTNode + typeNothing
+
+        typePersistentMask  = 0x00010000, // OR this value to prevent the datum from deletion
     };
 
-    DatumType isa = typeNothing;
+    DatumType isa = (DatumType)(typeNothing | typePersistentMask);
 
     int retainCount;
 
