@@ -47,12 +47,11 @@ bool CallFrameStack::doesExist(QString name) {
 
 
 DatumPtr CallFrameStack::allVariables() {
-    List *retval = new List();
-    ListBuilder builder(retval);
+    ListBuilder builder;
     for (auto &varname : variables.keys()) {
         builder.append(DatumPtr(varname));
     }
-    return DatumPtr(retval);
+    return builder.finishedList();
 }
 
 
@@ -108,7 +107,7 @@ CallFrame::~CallFrame() {
     Q_ASSERT(frameStack->stack.first() == this);
     for (auto iter = localVars.begin(); iter != localVars.end(); ++iter) {
         DatumPtr value = iter.value();
-        if (value.isa() == Datum::typeNothing) {
+        if (value.isNothing()) {
             frameStack->eraseVar(iter.key());
         } else {
             frameStack->setDatumForName(value, iter.key());
@@ -174,14 +173,14 @@ Datum *CallFrame::applyProcedureParams(Datum **paramAry, uint32_t paramCount) {
     // Finally, take in the remainder (if any) as a list.
     if (proc->restInput != "") {
         QString name = proc->restInput;
-        List *restList = new List();
-        ListBuilder builder(restList);
+        ListBuilder builder;
         while (paramIndex < paramCount) {
             builder.append(*(paramAry + paramIndex));
             paramIndex++;
         }
         setVarAsLocal(name);
-        setValueForName(DatumPtr(restList), name);
+        DatumPtr restList = builder.finishedList();
+        setValueForName(restList, name);
     }
     return nullptr;
 }
@@ -325,10 +324,12 @@ Evaluator::~Evaluator()
     //qDebug() << "draining pool";
     for (auto &d : releasePool)
     {
-        (d->retainCount)--;
-        if ((d != retval) && (d->retainCount < 1))
-            delete d;
+        if (d->isa & Datum::typePersistentMask != 0) {
+            (d->retainCount)--;
+            if ((d != retval) && (d->retainCount < 1))
+                delete d;
     }
+}
 
     //qDebug() << "drained pool";
     evalStack.removeFirst();
@@ -338,7 +339,7 @@ Evaluator::~Evaluator()
 Datum *Evaluator::exec(int32_t jumpLocation)
 {
     if (list.listValue()->isEmpty()) {
-        return &notADatum;
+        return Datum::getInstance();
     }
     fn = Config::get().mainCompiler()->functionPtrFromList(list.listValue());
     retval = static_cast<Datum *>(fn((addr_t)this, jumpLocation));
@@ -351,18 +352,18 @@ Datum *Evaluator::subExec(Datum *aList)
 {
     try
     {
-        if (aList->isa == Datum::typeWord) {
+        if (aList->isWord()) {
             DatumPtr runparsedList = runparse(DatumPtr(aList));
             aList = runparsedList.datumValue();
             watch(aList);
         }
-        if (aList->isa != Datum::typeList) {
+        if (! aList->isList()) {
             FCError *err = FCError::noHow(DatumPtr(aList));
             watch(err);
             return err;
         }
-        if (reinterpret_cast<List *>(aList)->isEmpty()) {
-            return &notADatum;
+        if (aList->listValue()->isEmpty()) {
+            return Datum::getInstance();
         }
         Evaluator e(aList, evalStack);
             retval = e.exec();
@@ -382,6 +383,11 @@ Datum *Evaluator::procedureExec(ASTNode *node, Datum **paramAry, uint32_t paramC
     return frame.exec(paramAry, paramCount);
 }
 
+
+Datum *Evaluator::watch(DatumPtr d)
+{
+    return watch(d.datumValue());
+}
 
 Datum *Evaluator::watch(Datum *d)
 {
@@ -404,21 +410,19 @@ bool Evaluator::areDatumsEqualRecurse(Datum *datum1, Datum *datum2, Qt::CaseSens
     if (datum1->isa != datum2->isa)
         return false;
 
-    switch (datum1->isa)
+    if (datum1->isWord())
     {
-    case Datum::typeWord:
-    {
-        Word *word1 = static_cast<Word*>(datum1);
-        Word *word2 = static_cast<Word*>(datum2);
+        Word *word1 = datum1->wordValue();
+        Word *word2 = datum2->wordValue();
         if (word1->isSourceNumber() || word2->isSourceNumber())
             return word1->numberValue() == word2->numberValue();
 
         return word1->printValue().compare(word2->printValue(), cs) == 0;
     }
-    case Datum::typeList:
+    else if (datum1->isList())
     {
-        List *list1 = static_cast<List*>(datum1);
-        List *list2 = static_cast<List*>(datum2);
+        List *list1 = datum1->listValue();
+        List *list2 = datum2->listValue();
 
         if (list1->count() != list2->count())
             return false;
@@ -442,12 +446,14 @@ bool Evaluator::areDatumsEqualRecurse(Datum *datum1, Datum *datum2, Qt::CaseSens
         }
         return true;
     }
-    case Datum::typeArray:
+    else if (datum1->isArray())
+    {
         // Arrays are equal iff they are the same array, which would have
         // passed the "datum1 == datum2" test at the beginning.
         return false;
-
-    default:
+    }
+    else
+    {
         qDebug() << "unknown datum type in areDatumsEqualRecurse";
         Q_ASSERT(false);
     }
@@ -465,15 +471,14 @@ bool Evaluator::isDatumInContainerRecurse(Datum *value, Datum *container, Qt::Ca
     if (searchedContainers.contains(container)) return false;
     searchedContainers.insert(container);
 
-    switch (container->isa) {
-        case Datum::typeArray:
+    if (container->isArray())
         {
-            Array *array = reinterpret_cast<Array*>(container);
+            Array *array = container->arrayValue();
             for (auto &item : array->array) {
                 Datum *itemPtr = item.datumValue();
                 if (areDatumsEqual(itemPtr, value, cs))
                     return true;
-                if ((itemPtr->isa & (Datum::typeArray | Datum::typeList)) != 0)
+                if (itemPtr->isArray() || itemPtr->isList())
                 {
                     if ( ! searchedContainers.contains(itemPtr))
                     {
@@ -483,18 +488,17 @@ bool Evaluator::isDatumInContainerRecurse(Datum *value, Datum *container, Qt::Ca
                     }
                 }
             }
-            break;
         }
-        case Datum::typeList:
+    else if (container->isList())
         {
-            List *list = reinterpret_cast<List*>(container);
+            List *list = container->listValue();
             ListIterator iter = list->newIterator();
             while (iter.elementExists())
             {
                 Datum *itemPtr = iter.element().datumValue();
                 if (areDatumsEqual(itemPtr, value, cs))
                     return true;
-                if ((itemPtr->isa & (Datum::typeArray | Datum::typeList)) != 0)
+                if (itemPtr->isArray() || itemPtr->isList())
                 {
                     if ( ! searchedContainers.contains(itemPtr))
                     {
@@ -504,11 +508,10 @@ bool Evaluator::isDatumInContainerRecurse(Datum *value, Datum *container, Qt::Ca
                     }
                 }
             }
-            break;
         }
-        default:
+    else
+    {
             Q_ASSERT(false);
-            break;
     }
     return false;
 }
@@ -518,7 +521,7 @@ bool Evaluator::varCASEIGNOREDP()
     QString name = QObject::tr("CASEIGNOREDP");
     DatumPtr val = Config::get().mainKernel()->callStack.datumForName(name);
     bool retval = false;
-    if (val.isa() == Datum::typeWord)
+    if (val.isWord())
     {
         QString word = val.wordValue()->keyValue();
         retval = word == QObject::tr("TRUE");

@@ -40,6 +40,7 @@ struct FCError;
 class Unbound;
 class ASTNode;
 class Procedure;
+class EmptyList;
 
 class DatumPtr;
 class ListIterator;
@@ -123,10 +124,23 @@ class Datum
     friend class DatumPtr;
     friend struct Evaluator;
 
-  private:
+  protected:
     Datum &operator=(const Datum &) = delete;
     Datum &operator=(Datum &&) = delete;
     Datum &operator=(Datum *) = delete;
+
+    /// @brief Protected constructor to prevent direct instantiation.
+    ///
+    /// @details The Datum class uses the singleton pattern. Only one instance
+    /// of Datum can exist (accessed via getInstance()). Subclasses can still
+    /// be instantiated multiple times because they can call this protected constructor.
+    Datum();
+
+    /// @brief Protected copy constructor to prevent copying.
+    Datum(const Datum &) = delete;
+
+    /// @brief Protected move constructor to prevent moving.
+    Datum(Datum &&) = delete;
 
   public:
 
@@ -146,7 +160,6 @@ class Datum
         typeGoto            = 0x00000020,
         typeContinuation    = 0x00000040,
         typeReturn          = 0x00000080,
-
         typeFlowControlMask = 0x000000F0,
 
         // These are the types that are used internally by QLogo.
@@ -154,24 +167,26 @@ class Datum
         typeASTNode         = 0x00000200,
         typeProcedure       = 0x00000400,
 
-        // "Unbound" can have two forms:
-        // 1. "nothing" (typeNothing) - nothing, and no ASTNode blame info
-        // 2. "ASTNode" (typeASTNode) - ASTNode, which can be interpreted as "nothing" with blame info
-        typeUnboundMask     = 0x00000300, // typeASTNode + typeProcedure
+        typeUnboundMask     = 0x00000300, // typeASTNode + typeNothing
+
+        typePersistentMask  = 0x00010000, // OR this value to prevent the datum from deletion
     };
 
-    DatumType isa = typeNothing;
+    DatumType isa = (DatumType)(typeNothing | typePersistentMask);
 
     int retainCount;
 
     /// @brief If set to 'true', DatumPtr will send qDebug message when this is deleted.
     bool alertOnDelete = false;
 
-    /// @brief Constructs a Datum
+    /// @brief Get the singleton instance of Datum.
     ///
-    /// @details The Datum class is the superclass for all data. The Datum superclass
-    /// maintains retain counts (retain counts are manipulated by the DatumPtr class).
-    Datum();
+    /// @details Returns the single instance of Datum. This instance represents
+    /// "nothing" (similar to nullptr). Subclasses like Word, List, Array, etc.
+    /// can still be instantiated multiple times.
+    ///
+    /// @return A pointer to the singleton Datum instance.
+    static Datum *getInstance();
 
     /// @brief Destructor.
     virtual ~Datum();
@@ -201,6 +216,57 @@ class Datum
     /// @param printWidthLimit limit the length of a string or list for readability.
     /// @return A string suitable for the SHOW command
     virtual QString showValue(bool = false, int printDepthLimit = -1, int printWidthLimit = -1);
+
+    /// @brief Returns true if the referred Datum is a List, false otherwise.
+    ///
+    /// @return True if the referred Datum is a List, false otherwise.
+    bool isList()
+    {
+        return (isa & Datum::typeList) != 0;
+    }
+
+    /// @brief Returns true if the referred Datum is an Array, false otherwise.
+    ///
+    /// @return True if the referred Datum is an Array, false otherwise.
+    bool isArray()
+    {
+        return (isa & Datum::typeArray) != 0;
+    }
+
+    /// @brief Returns true if the referred Datum is a Word, false otherwise.
+    ///
+    /// @return True if the referred Datum is a Word, false otherwise.
+    bool isWord()
+    {
+        return (isa & Datum::typeWord) != 0;
+    }
+
+    /// @brief Performs an assertion check that the referred Datum is a Word. Returns a pointer to the referred Datum as a Word.
+    ///
+    /// @return A pointer to the referred Datum as a Word.
+    Word *wordValue()
+    {
+        Q_ASSERT(isWord());
+        return reinterpret_cast<Word *>(this);
+    }
+
+    /// @brief Performs an assertion check that the referred Datum is a List. Returns a pointer to the referred Datum as a List.
+    ///
+    /// @return A pointer to the referred Datum as a List.
+    List *listValue()
+    {
+        Q_ASSERT(isList());
+        return reinterpret_cast<List *>(this);
+    }
+
+    /// @brief Performs an assertion check that the referred Datum is an Array. Returns a pointer to the referred Datum as an Array.
+    ///
+    /// @return A pointer to the referred Datum as an Array.
+    Array *arrayValue()
+    {
+        Q_ASSERT(isArray());
+        return reinterpret_cast<Array *>(this);
+    }
 };
 
 /// @brief A smart pointer to a Datum.
@@ -218,12 +284,12 @@ class DatumPtr
     /// Copy constructor. Increases retain count of the referred object.
     DatumPtr(const DatumPtr &other) noexcept;
 
-    /// Default constructor. Points to notADatum (like NULL)
+    /// Default constructor. Creates a pointer to the singleton Datum instance.
     DatumPtr();
 
     /// @brief Creates a pointer to a Datum object. Begins reference counting.
     ///
-    /// Creates a pointer to the referenced object and increases its retain count.
+    /// Creates a pointer to the specified Datum object and increases its retain count.
     /// The referred object will be destroyed when the last object referring to it
     /// is destroyed.
     DatumPtr(Datum *);
@@ -322,7 +388,7 @@ class DatumPtr
     /// @return True if the referred Datum is a List, false otherwise.
     bool isList()
     {
-        return d->isa == Datum::typeList;
+        return (d->isa & Datum::typeList) != 0;
     }
 
     /// @brief Returns true if the referred Datum is an ASTNode, false otherwise.
@@ -351,12 +417,11 @@ class DatumPtr
     }
 
 
-    /// @brief Returns true if the referred Datum is a notADatum, false otherwise.
+    /// @brief Returns true if the referred Datum is the singleton Datum instance, false otherwise.
     ///
-    /// @return True if the referred Datum is a notADatum, false otherwise.
-    bool isNothing()
-    {
-        return (d->isa & Datum::typeUnboundMask) != 0;
+    /// @return True if the referred Datum is the singleton Datum instance, false otherwise.
+    bool isNothing() {
+        return d == Datum::getInstance();
     }
 
     /// @brief Returns true if the referred Datum is a FlowControl, false otherwise.
@@ -579,12 +644,9 @@ struct Array : public Datum
 
 /// @brief The general container for data. The QLogo List is implemented as a linked list.
 ///
-/// @details The List class is a linked list of DatumPtrs. The head of the list contains a
+/// @details The List class is a linked list of DatumPtrs. The head of the list must contain a
 /// DatumPtr to a Word, List, or Array. The tail of the list is a DatumPtr which must point to
-/// a List.
-/// 
-/// Alternatively, the head can contain nothing, in which case the list is empty. The empty list
-/// is the only list that can have a tail of nothing.
+/// a List or EmptyList.
 class List : public Datum
 {
     friend class ListIterator;
@@ -596,14 +658,8 @@ class List : public Datum
     /// @details The head of the list.
     DatumPtr head;
 
-    /// @brief The remainder of the list after the head. Must be either a list or nothing.
+    /// @brief The remainder of the list after the head. Must be either List or EmptyList.
     DatumPtr tail;
-
-    /// @brief The last node of the list.
-    ///
-    /// @details Only use as a shortcut during list initialization. It should not be used after
-    /// list has been made available to the user.
-    List *lastNode;
 
     /// @brief The time, as returned by QDateTime::currentMSecsSinceEpoch().
     ///
@@ -614,9 +670,6 @@ class List : public Datum
     /// @todo It's difficult to know when the list is modified. We should consider
     /// removing this.
     qint64 astParseTimeStamp;
-
-    /// @brief Create an empty List.
-    List();
 
     /// @brief Create a new list by attaching item as the head of srcList.
     ///
@@ -676,6 +729,43 @@ class List : public Datum
     ListIterator newIterator();
 };
 
+/// @brief A singleton class that represents an empty list.
+///
+/// @details EmptyList is an immutable singleton. There can only be one instance
+/// of EmptyList in the entire program. All empty lists should reference this
+/// single instance. The list cannot be modified after creation.
+class EmptyList : public List
+{
+  private:
+    /// @brief Private constructor to enforce singleton pattern.
+    EmptyList();
+
+    /// @brief Deleted copy constructor to prevent copying.
+    EmptyList(const EmptyList &) = delete;
+
+    /// @brief Deleted assignment operator to prevent assignment.
+    EmptyList &operator=(const EmptyList &) = delete;
+
+    /// @brief Deleted move constructor to prevent moving.
+    EmptyList(EmptyList &&) = delete;
+
+    /// @brief Deleted move assignment operator to prevent move assignment.
+    EmptyList &operator=(EmptyList &&) = delete;
+
+    /// @brief Static instance pointer.
+    static EmptyList *instance_;
+
+    
+    void clear();
+    void setButfirstItem(DatumPtr aValue);
+
+  public:
+    /// @brief Get the singleton instance of EmptyList.
+    ///
+    /// @return A pointer to the singleton EmptyList instance.
+    static EmptyList *instance();
+};
+
 /// @brief A class that simplifies iterating through a list.
 ///
 /// @details This class is used to iterate through a list. Unlike the c++ STL iterator,
@@ -708,27 +798,48 @@ class ListIterator
 /// @brief A class that allows quickly building a list.
 ///
 /// @details This class is used to build a list quickly by appending elements to the end of the list.
-/// @note This class should only be used internally, such as when reading a list. It should not be
-/// available to the user.
+/// @note This class should only be used internally within the qlogo binary. It should not be available to the user.
 class ListBuilder
 {
-    List *lastNode;
-  public:
-    ListBuilder(List *srcList) : lastNode(srcList) {}
+  private:
+    DatumPtr finishedList_;
 
+public:
+    List *firstNode;
+    List *lastNode;
+
+    ListBuilder() : firstNode(EmptyList::instance()), lastNode(EmptyList::instance()), finishedList_(EmptyList::instance())
+    {}
+
+    /// @brief Append an element to the end of the list.
+    /// @param element The element to append to the end of the list.
     void append(DatumPtr element)
     {
-        List *newNode = new List();
-        lastNode->head = element;
-        lastNode->tail = DatumPtr(newNode);
-        lastNode = newNode;
+        List *newList = new List(element, EmptyList::instance());
+        if (firstNode == EmptyList::instance())
+        {
+            firstNode = newList;
+            lastNode = newList;
+            finishedList_ = DatumPtr(firstNode);
+        } else {
+            lastNode->tail = DatumPtr(newList);
+            lastNode = newList;
+        }
+    }
+
+    /// @brief Return the finished list.
+    /// @return The finished list.
+    DatumPtr finishedList() const
+    {
+        return finishedList_;
     }
 };
 
-/// @brief A datum that has no value.
-extern Datum notADatum;
 
-/// @brief A pointer to notADatum, like NULL.
+/// @brief A pointer to the singleton Datum instance.
 extern DatumPtr nothing;
+
+/// @brief A pointer to an empty list.
+extern DatumPtr emptyList;
 
 #endif // DATUM_H

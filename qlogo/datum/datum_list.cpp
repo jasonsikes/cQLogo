@@ -25,20 +25,11 @@
 QList<void *> listVisited;
 QList<void *> otherListVisited;
 
-List::List()
-{
-    isa = Datum::typeList;
-    astParseTimeStamp = 0;
-    lastNode = this;
-    //qDebug() <<this << " new++ list";
-}
-
 List::List(DatumPtr item, List *srcList)
 {
     isa = Datum::typeList;
     head = item;
     tail = DatumPtr(srcList);
-    lastNode = srcList->lastNode;
     astParseTimeStamp = 0;
     //qDebug() <<this << " new++ list";
 }
@@ -91,15 +82,14 @@ QString List::showValue(bool fullPrintp, int printDepthLimit, int printWidthLimi
 
 bool List::isEmpty()
 {
-    return head.isNothing();
+    return this == EmptyList::instance();
 }
 
 void List::setButfirstItem(DatumPtr aValue)
 {
-    Q_ASSERT(! head.isNothing());
+    Q_ASSERT(! isEmpty());
     Q_ASSERT(aValue.isList());
     tail = aValue;
-    lastNode = aValue.listValue()->lastNode;
     astParseTimeStamp = 0;
 }
 
@@ -126,7 +116,7 @@ int List::count()
 {
     int retval = 0;
     List* iter = this;
-    while ( ! iter->head.isNothing())
+    while ( ! iter->isEmpty())
     {
         ++retval;
         iter = iter->tail.listValue();
@@ -138,3 +128,35 @@ ListIterator List::newIterator()
 {
     return ListIterator(this);
 }
+
+// EmptyList singleton implementation
+EmptyList *EmptyList::instance_ = nullptr;
+
+EmptyList::EmptyList()
+    : List(nothing, nullptr)
+{
+    isa = (DatumType)(Datum::typeList | Datum::typePersistentMask);
+}
+
+EmptyList *EmptyList::instance()
+{
+    if (instance_ == nullptr)
+    {
+        instance_ = new EmptyList();
+    }
+    return instance_;
+}
+
+void EmptyList::clear()
+{
+    // EmptyList is immutable - do nothing
+    Q_ASSERT(false && "Attempted to modify immutable EmptyList");
+}
+
+void EmptyList::setButfirstItem(DatumPtr /* aValue */)
+{
+    Q_ASSERT(false && "Attempted to modify immutable EmptyList");
+}
+
+// Value to represent an empty list
+DatumPtr emptyList(EmptyList::instance());

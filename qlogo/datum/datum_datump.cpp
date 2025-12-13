@@ -22,14 +22,19 @@
 #include <QObject>
 #include <qdebug.h>
 
-DatumPtr::DatumPtr() : d(&notADatum)
+bool isNotPersistent(Datum *d)
+{
+    return (d != nullptr) && ((d->isa & Datum::typePersistentMask) == 0);
+}
+
+DatumPtr::DatumPtr() : d(Datum::getInstance())
 {
 }
 
 DatumPtr::DatumPtr(Datum *other)
 {
     d = other;
-    if (d && d != &notADatum)
+    if (isNotPersistent(d))
     {
         ++(d->retainCount);
     }
@@ -38,7 +43,7 @@ DatumPtr::DatumPtr(Datum *other)
 DatumPtr::DatumPtr(const DatumPtr &other) noexcept
 {
     d = other.d;
-    if (d && d != &notADatum)
+    if (isNotPersistent(d))
     {
         ++(d->retainCount);
     }
@@ -76,7 +81,7 @@ DatumPtr::DatumPtr(const char *n)
 
 void DatumPtr::destroy()
 {
-    if (d != &notADatum)
+    if (isNotPersistent(d))
     {
         --(d->retainCount);
         if (d->retainCount <= 0)
@@ -101,7 +106,7 @@ DatumPtr &DatumPtr::operator=(const DatumPtr &other) noexcept
     {
         destroy();
         d = other.d;
-        if (d && d != &notADatum)
+        if (isNotPersistent(d))
         {
             ++(d->retainCount);
         }
@@ -115,7 +120,7 @@ DatumPtr &DatumPtr::operator=(DatumPtr *other) noexcept
     {
         destroy();
         d = other->d;
-        if (d && d != &notADatum)
+        if (isNotPersistent(d))
         {
             ++(d->retainCount);
         }
@@ -151,7 +156,7 @@ Word *DatumPtr::wordValue()
 
 List *DatumPtr::listValue()
 {
-    Q_ASSERT(d->isa == Datum::typeList);
+    Q_ASSERT(d && (d->isa & Datum::typeList) != 0);
     return static_cast<List *>(d);
 }
 
